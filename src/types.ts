@@ -84,6 +84,8 @@ export interface RawOffer {
   promotion?: { highlighted?: boolean; urgent?: boolean; top_ad?: boolean; options?: string[] };
   params?: RawOfferParam[];
   user?: RawOfferUser;
+  /** phone: false — sotuvchi raqamini yashirgan. */
+  contact?: { name?: string; phone?: boolean; chat?: boolean; negotiation?: boolean; courier?: boolean };
   location?: {
     city?: { id: number; name: string };
     district?: { id: number; name: string };

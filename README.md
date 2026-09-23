@@ -39,8 +39,13 @@ ishlaydi — xuddi olx.uz saytining o'zi kabi:
 
 **Ma'lumotnoma**: `olx_suggest_category`, `olx_list_categories`, `olx_get_category` (majburiy parametrlar va qiymatlar), `olx_find_location`
 
-**Bozor va raqobatchilar**: `olx_search_offers`, `olx_get_offer`, `olx_get_seller`, `olx_analyze_market`,
+**Bozor va raqobatchilar**: `olx_search_offers`, `olx_get_offer`, `olx_get_offer_phones`, `olx_get_seller`, `olx_analyze_market`,
 `olx_find_competitors`, `olx_compare_my_advert`
+
+**Aloqa raqamlari**: `olx_get_offer_phones` 1–20 ta e'lon uchun sotuvchining telefonini ochadi (saytdagi "Показать телефон"
+tugmasi bilan bir xil, login shart emas) va tavsifga yozilgan raqamlarni ham ajratib beradi. `olx_get_offer` tavsifdagi
+raqamlarni doim ko'rsatadi, `include_phones=true` bilan esa telefonni ham ochadi. Har bir ochish sotuvchining
+statistikasiga yoziladi va OLX kunlik limit qo'yadi — faqat kerakli e'lonlar uchun so'rang.
 
 ## O'rnatish (istalgan qurilmada)
 
@@ -110,6 +115,7 @@ Shundan so'ng `olx_create_advert` tooli qo'shiladi.
 - "iPhone 13 128GB ni Toshkentda qanchaga sotsam bo'ladi?" → `olx_find_location` + `olx_analyze_market`
 - "Kir yuvish mashinalari bo'yicha asosiy raqobatchilarim kim?" → `olx_find_competitors` → `olx_get_seller`
 - "12345 raqamli e'lonimni raqobatchilar bilan solishtir" → `olx_compare_my_advert`
+- "Toshkentdagi arzon iPhone 13 sotuvchilarining raqamlarini ber" → `olx_search_offers sort=price_asc` → `olx_get_offer_phones`
 
 ## Tekshirish
 

@@ -23,6 +23,8 @@ import {
   type SellerAggregate,
 } from "../services/market.js";
 import { daysSince, formatted, money, percent, responseFormatSchema, safe, shortDate } from "../services/format.js";
+import { extractPhones, fetchOfferPhones, formatPhone } from "../services/phones.js";
+import { describeError } from "../errors.js";
 import type { FacetItem, OfferSummary, RawOffer } from "../types.js";
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
@@ -45,6 +47,57 @@ interface PublicUser {
   is_online?: boolean;
   user_ads_url?: string;
   message_response_time?: { text?: string | null };
+}
+
+interface OfferContact {
+  contact_name: string | null;
+  /** false — sotuvchi raqamini yashirgan (faqat chat orqali). */
+  phone_available: boolean;
+  /** "Показать телефон" orqali olingan raqamlar; null — so'ralmagan yoki xato. */
+  phones: string[] | null;
+  phones_error?: string;
+  /** Tavsif yoki sarlavhaga yozib qo'yilgan raqamlar. */
+  phones_in_text: string[];
+}
+
+function cleanDescription(raw: RawOffer): string {
+  return (raw.description ?? "").replace(/<br\s*\/?>/gi, "").trim();
+}
+
+async function getOfferContact(raw: RawOffer, reveal: boolean): Promise<OfferContact> {
+  const available = raw.contact?.phone !== false;
+  const contact: OfferContact = {
+    contact_name: raw.contact?.name ?? null,
+    phone_available: available,
+    phones: null,
+    phones_in_text: extractPhones(raw.title, cleanDescription(raw)),
+  };
+  if (reveal && available) {
+    try {
+      contact.phones = await fetchOfferPhones(raw.id);
+    } catch (error) {
+      contact.phones_error = describeError(error);
+    }
+  } else if (reveal) {
+    contact.phones = [];
+  }
+  return contact;
+}
+
+function contactLines(c: OfferContact): string[] {
+  const phones =
+    c.phones_error ??
+    (c.phones === null
+      ? "ko'rsatilmadi (include_phones=true yoki olx_get_offer_phones)"
+      : c.phones.length
+        ? c.phones.map(formatPhone).join(", ")
+        : c.phone_available
+          ? "raqam topilmadi"
+          : "sotuvchi raqamini yashirgan — faqat OLX chat orqali");
+  return [
+    `- Aloqa: ${c.contact_name ?? "—"} · 📞 ${phones}`,
+    ...(c.phones_in_text.length ? [`- Tavsifda yozilgan raqamlar: ${c.phones_in_text.map(formatPhone).join(", ")}`] : []),
+  ];
 }
 
 async function getPublicUser(userId: number): Promise<PublicUser> {
@@ -256,29 +309,96 @@ For aggregated stats use olx_analyze_market instead of paging manually.`,
     {
       title: "Raqobatchi e'lonini ko'rish",
       description: `Get full public details of any OLX listing by its numeric id (from search results): description, all parameters,
-price, seller, location, promotion flags, dates. Useful to study how a competitor writes and positions their listing.`,
+price, seller, location, promotion flags, dates, contact name and phone numbers written in the description.
+Set include_phones=true to also reveal the seller's contact phone (same as the "Show phone" button).
+Useful to study how a competitor writes and positions their listing.`,
       inputSchema: {
         offer_id: z.number().int().positive(),
+        include_phones: z
+          .boolean()
+          .default(false)
+          .describe("Sotuvchining telefon raqamini ham ochish (\"Показать телефон\"; sotuvchining statistikasiga yoziladi)"),
         response_format: responseFormatSchema,
       },
       annotations: readOnly,
     },
-    safe(async ({ offer_id, response_format }) => {
+    safe(async ({ offer_id, include_phones, response_format }) => {
       const raw = (await publicGet<{ data: RawOffer }>(`/offers/${offer_id}/`)).data;
       const offer = normalizeOffer(raw);
       const params = (raw.params ?? []).map((p) => ({ name: p.name, value: p.value.label ?? String(p.value.value ?? "") }));
-      const description = (raw.description ?? "").replace(/<br\s*\/?>/gi, "").trim();
-      return formatted(response_format, { ...offer, params, description }, () =>
+      const description = cleanDescription(raw);
+      const contact = await getOfferContact(raw, include_phones);
+      return formatted(response_format, { ...offer, params, description, contact }, () =>
         [
           `# ${offer.title}`,
           offerLine(offer),
           `- Yangilangan: ${shortDate(offer.refreshed)} · Holati: ${raw.status ?? "—"}`,
+          ...contactLines(contact),
           "",
           "## Parametrlar",
           ...params.map((p) => `- ${p.name}: ${p.value}`),
           "",
           "## Tavsif",
           description || "—",
+        ].join("\n"),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "olx_get_offer_phones",
+    {
+      title: "E'lonlardagi aloqa raqamlari",
+      description: `Reveal the contact phone numbers of one or more OLX listings (the same as pressing "Показать телефон" on the site).
+No login needed. For each offer returns: title, url, seller, contact name, phones from the "show phone" button,
+and phone numbers the seller wrote in the title/description. If the seller hid the phone, phones is [] and phone_available=false.
+
+Notes: each reveal is counted in the seller's statistics and OLX applies a daily limit (429) — request only the
+offers the user actually needs. Offer ids come from olx_search_offers / olx_get_seller.`,
+      inputSchema: {
+        offer_ids: z.array(z.number().int().positive()).min(1).max(20).describe("E'lon ID lari (1–20 ta)"),
+        response_format: responseFormatSchema,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    safe(async ({ offer_ids, response_format }) => {
+      type PhoneResult =
+        | ({ id: number; title: string; url: string; seller_id: number | null; seller_name: string | null; price_label: string } & OfferContact)
+        | { id: number; error: string };
+      const results: PhoneResult[] = [];
+      // Ketma-ket: OLX bir vaqtdagi ko'p "telefonni ko'rsatish" so'rovlarini shubhali deb bloklaydi.
+      for (const id of [...new Set(offer_ids)]) {
+        try {
+          const raw = (await publicGet<{ data: RawOffer }>(`/offers/${id}/`)).data;
+          const offer = normalizeOffer(raw);
+          results.push({
+            id,
+            title: offer.title,
+            url: offer.url,
+            seller_id: offer.seller_id,
+            seller_name: offer.seller_name,
+            price_label: offer.price_label ?? money(offer.price, offer.currency),
+            ...(await getOfferContact(raw, true)),
+          });
+        } catch (error) {
+          results.push({ id, error: describeError(error) });
+        }
+      }
+      return formatted(response_format, { offers: results }, () =>
+        [
+          `# Aloqa raqamlari (${results.length} ta e'lon)`,
+          "",
+          ...results.map((r) =>
+            "error" in r
+              ? `## ID ${r.id}\n${r.error}\n`
+              : [
+                  `## ${r.title} — ${r.price_label}`,
+                  `- Sotuvchi: ${r.seller_name ?? "—"} (seller_id ${r.seller_id ?? "—"})`,
+                  ...contactLines(r),
+                  `- ${r.url} (id ${r.id})`,
+                  "",
+                ].join("\n"),
+          ),
         ].join("\n"),
       );
     }),
