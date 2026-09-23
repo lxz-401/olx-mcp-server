@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.explore/
+.env
+session.json
+*.bak-olx

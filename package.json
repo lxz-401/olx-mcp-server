@@ -1,0 +1,43 @@
+{
+  "name": "olx-mcp-server",
+  "version": "2.0.0",
+  "description": "MCP server for OLX.uz: profile, my adverts & stats, competitor and market analysis",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "olx-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "setup:claude": "node scripts/setup-claude-desktop.mjs",
+    "start": "node dist/index.js",
+    "login": "node dist/login-cli.js",
+    "dev": "tsx src/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "playwright-core": "^1.63.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lxz-401/olx-mcp-server.git"
+  },
+  "keywords": [
+    "mcp",
+    "olx",
+    "olx.uz",
+    "claude",
+    "model-context-protocol"
+  ]
+}
